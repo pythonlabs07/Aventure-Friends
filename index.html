@@ -1,0 +1,1147 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#1f2533" />
+  <title>Aventure Friends</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      margin: 0;
+      width: 100%;
+      min-height: 100%;
+      background: #111722;
+      font-family: "Courier New", monospace;
+      overflow: hidden;
+      touch-action: none;
+    }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #game-wrap {
+      width: 100%;
+      height: 100svh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #111722;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: auto;
+      max-height: 100svh;
+      object-fit: contain;
+      image-rendering: pixelated;
+      background: #4ab9f5;
+      touch-action: none;
+    }
+
+    #rotate-tip {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 28px;
+      text-align: center;
+      background: #111722;
+      color: white;
+      font-size: 20px;
+      line-height: 1.4;
+      z-index: 10;
+    }
+
+    @media (orientation: portrait) and (max-width: 700px) {
+      #rotate-tip {
+        display: flex;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="game-wrap">
+    <canvas id="game" width="1000" height="600" aria-label="Aventure Friends"></canvas>
+  </div>
+
+  <div id="rotate-tip">
+    Vire o celular para a horizontal para jogar melhor.
+  </div>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+      ctx.imageSmoothingEnabled = false;
+
+      const W = canvas.width;
+      const H = canvas.height;
+      const FPS = 60;
+
+      const COLORS = {
+        sky: "#46b9f5",
+        white: "#ffffff",
+        black: "#141923",
+        green: "#37be46",
+        darkGreen: "#1e7d2d",
+        brown: "#91552d",
+        darkBrown: "#5f3219",
+        yellow: "#ffd71e",
+        orange: "#ff9119",
+        red: "#e13737",
+        blue: "#2d73f5",
+        gray: "#5a5f6e",
+        darkGray: "#262a37"
+      };
+
+      const characterFiles = [
+        { name: "Magal Supreme", file: "Magal_Supreme.jpeg" },
+        { name: "Rosa Daniel", file: "Rosa_Daniel.jpeg" },
+        { name: "Bibiel", file: "Bibiel.jpeg" },
+        { name: "Teteu175KAura", file: "Teteu175KAura.jpeg" },
+        { name: "Leça", file: "Leça.jpeg" }
+      ];
+
+      const characters = characterFiles.map((data) => {
+        const img = new Image();
+        const entry = {
+          ...data,
+          img,
+          loaded: false,
+          failed: false
+        };
+
+        img.onload = () => {
+          entry.loaded = true;
+        };
+
+        img.onerror = () => {
+          entry.failed = true;
+        };
+
+        img.src = data.file;
+        return entry;
+      });
+
+      let state = "menu"; // menu | select | game
+      let menuIndex = 0;
+      let selectedCharacter = 0;
+
+      const WORLD_WIDTH = 5000;
+      const GROUND_Y = 510;
+
+      const PLAYER_W = 100;
+      const PLAYER_H = 150;
+
+      const player = {
+        x: 100,
+        y: GROUND_Y - PLAYER_H,
+        w: PLAYER_W,
+        h: PLAYER_H,
+        vx: 0,
+        vy: 0,
+        grounded: false
+      };
+
+      const SPEED = 6;
+      const GRAVITY = 0.70;
+      const JUMP = -14.5;
+      const MAX_FALL = 15;
+
+      let points = 0;
+      let coinCount = 0;
+      let lives = 3;
+      let cameraX = 0;
+      let gameOver = false;
+      let won = false;
+
+      const platforms = [
+        { x: 0, y: GROUND_Y, w: 850, h: 100 },
+        { x: 1000, y: GROUND_Y, w: 800, h: 100 },
+        { x: 1950, y: GROUND_Y, w: 950, h: 100 },
+        { x: 3050, y: GROUND_Y, w: 800, h: 100 },
+        { x: 4000, y: GROUND_Y, w: 1100, h: 100 },
+
+        { x: 380, y: 400, w: 190, h: 25 },
+        { x: 680, y: 320, w: 180, h: 25 },
+        { x: 1120, y: 410, w: 180, h: 25 },
+        { x: 1430, y: 330, w: 200, h: 25 },
+        { x: 2100, y: 390, w: 190, h: 25 },
+        { x: 2450, y: 310, w: 190, h: 25 },
+        { x: 2750, y: 390, w: 170, h: 25 },
+        { x: 3300, y: 390, w: 190, h: 25 },
+        { x: 3600, y: 310, w: 190, h: 25 },
+        { x: 4200, y: 400, w: 190, h: 25 },
+        { x: 4500, y: 320, w: 190, h: 25 }
+      ];
+
+      const coinPositions = [
+        [430, 355], [500, 355], [745, 275],
+        [1170, 365], [1480, 285], [1550, 285],
+        [2150, 345], [2500, 265], [2800, 345],
+        [3350, 345], [3650, 265], [4250, 355],
+        [4550, 275], [4620, 275]
+      ];
+
+      const enemyData = [
+        [600, 450, 800],
+        [1200, 1050, 1700],
+        [2200, 2000, 2800],
+        [3400, 3150, 3750],
+        [4300, 4100, 4750]
+      ];
+
+      let coins = [];
+      let enemies = [];
+
+      function createCoins() {
+        coins = coinPositions.map(([x, y]) => ({
+          x, y, w: 24, h: 24, collected: false
+        }));
+      }
+
+      function createEnemies() {
+        enemies = enemyData.map(([start, min, max]) => ({
+          x: start,
+          y: GROUND_Y - 42,
+          w: 42,
+          h: 42,
+          vx: 2,
+          min,
+          max,
+          alive: true
+        }));
+      }
+
+      createCoins();
+      createEnemies();
+
+      const flag = {
+        x: 4800,
+        y: GROUND_Y - 220,
+        w: 20,
+        h: 220
+      };
+
+      const controls = {
+        left: { x: 25, y: H - 95, w: 75, h: 70 },
+        right: { x: 115, y: H - 95, w: 75, h: 70 },
+        jump: { x: W - 115, y: H - 105, w: 90, h: 80 }
+      };
+
+      const pressed = {
+        left: false,
+        right: false,
+        jumpQueued: false
+      };
+
+      const pointers = new Map();
+
+      function intersects(a, b) {
+        return (
+          a.x < b.x + b.w &&
+          a.x + a.w > b.x &&
+          a.y < b.y + b.h &&
+          a.y + a.h > b.y
+        );
+      }
+
+      function pointInRect(x, y, r) {
+        return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+      }
+
+      function resetGame() {
+        points = 0;
+        coinCount = 0;
+        lives = 3;
+        cameraX = 0;
+        gameOver = false;
+        won = false;
+
+        player.x = 100;
+        player.y = GROUND_Y - PLAYER_H;
+        player.vx = 0;
+        player.vy = 0;
+        player.grounded = false;
+
+        createCoins();
+        createEnemies();
+      }
+
+      function loseLife() {
+        if (gameOver || won) return;
+
+        lives -= 1;
+
+        if (lives <= 0) {
+          gameOver = true;
+          return;
+        }
+
+        player.x = 100;
+        player.y = GROUND_Y - PLAYER_H;
+        player.vx = 0;
+        player.vy = 0;
+        cameraX = 0;
+      }
+
+      function startGame() {
+        const selected = characters[selectedCharacter];
+
+        if (!selected.loaded) {
+          state = "select";
+          return;
+        }
+
+        resetGame();
+        state = "game";
+      }
+
+      function selectCharacter(index) {
+        if (index < 0 || index >= characters.length) return;
+        selectedCharacter = index;
+
+        if (characters[selectedCharacter].loaded) {
+          state = "menu";
+        }
+      }
+
+      function updateGame() {
+        if (gameOver || won) {
+          pressed.jumpQueued = false;
+          return;
+        }
+
+        player.vx = 0;
+
+        if (pressed.left && !pressed.right) {
+          player.vx = -SPEED;
+        } else if (pressed.right && !pressed.left) {
+          player.vx = SPEED;
+        }
+
+        if (pressed.jumpQueued && player.grounded) {
+          player.vy = JUMP;
+          player.grounded = false;
+        }
+
+        pressed.jumpQueued = false;
+
+        // Movimento horizontal
+        player.x += player.vx;
+
+        for (const p of platforms) {
+          if (intersects(player, p)) {
+            if (player.vx > 0) {
+              player.x = p.x - player.w;
+            } else if (player.vx < 0) {
+              player.x = p.x + p.w;
+            }
+          }
+        }
+
+        player.x = Math.max(0, Math.min(WORLD_WIDTH - player.w, player.x));
+
+        // Movimento vertical
+        player.vy += GRAVITY;
+        if (player.vy > MAX_FALL) player.vy = MAX_FALL;
+
+        player.y += player.vy;
+        player.grounded = false;
+
+        for (const p of platforms) {
+          if (intersects(player, p)) {
+            if (player.vy > 0) {
+              player.y = p.y - player.h;
+              player.vy = 0;
+              player.grounded = true;
+            } else if (player.vy < 0) {
+              player.y = p.y + p.h;
+              player.vy = 0;
+            }
+          }
+        }
+
+        // Sensor dos pés
+        const foot = {
+          x: player.x + 8,
+          y: player.y + player.h,
+          w: player.w - 16,
+          h: 4
+        };
+
+        for (const p of platforms) {
+          if (intersects(foot, p)) {
+            player.grounded = true;
+            break;
+          }
+        }
+
+        if (player.y > H + 140) {
+          loseLife();
+        }
+
+        // Moedas
+        for (const coin of coins) {
+          if (!coin.collected && intersects(player, coin)) {
+            coin.collected = true;
+            coinCount += 1;
+            points += 100;
+          }
+        }
+
+        // Inimigos
+        for (const enemy of enemies) {
+          if (!enemy.alive) continue;
+
+          enemy.x += enemy.vx;
+
+          if (enemy.x <= enemy.min) {
+            enemy.x = enemy.min;
+            enemy.vx = Math.abs(enemy.vx);
+          }
+
+          if (enemy.x >= enemy.max) {
+            enemy.x = enemy.max;
+            enemy.vx = -Math.abs(enemy.vx);
+          }
+
+          if (intersects(player, enemy)) {
+            const playerBottom = player.y + player.h;
+
+            if (player.vy > 0 && playerBottom <= enemy.y + 30) {
+              enemy.alive = false;
+              player.y = enemy.y - player.h;
+              player.vy = -9;
+              points += 200;
+            } else {
+              loseLife();
+              break;
+            }
+          }
+        }
+
+        if (intersects(player, flag)) {
+          won = true;
+          points += 1000;
+        }
+
+        cameraX = player.x + player.w / 2 - W / 2;
+        cameraX = Math.max(0, Math.min(WORLD_WIDTH - W, cameraX));
+      }
+
+      function drawText(text, x, y, size, color, align = "left", weight = "700") {
+        ctx.font = `${weight} ${size}px "Courier New", monospace`;
+        ctx.fillStyle = color;
+        ctx.textAlign = align;
+        ctx.textBaseline = "middle";
+        ctx.fillText(text, x, y);
+      }
+
+      function drawRetroText(text, x, y, size, align = "center") {
+        ctx.font = `900 ${size}px "Courier New", monospace`;
+        ctx.textAlign = align;
+        ctx.textBaseline = "middle";
+
+        ctx.fillStyle = "#5b3d2a";
+        ctx.fillText(text, x + 4, y + 5);
+
+        ctx.fillStyle = "#f7eecb";
+        ctx.fillText(text, x, y);
+      }
+
+      function drawMenuBackground() {
+        ctx.fillStyle = "#79c3b1";
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.fillStyle = "#dade8b";
+        ctx.fillRect(0, 205, W, 230);
+
+        // Nuvens blocadas
+        ctx.fillStyle = "#efe6a1";
+
+        const clouds = [
+          [190, 65, 320],
+          [500, 115, 380],
+          [820, 150, 240]
+        ];
+
+        for (const [x, y, width] of clouds) {
+          ctx.fillRect(x, y, width, 20);
+          ctx.fillRect(x + 35, y - 12, width - 80, 20);
+          ctx.fillRect(x + 80, y - 25, Math.max(40, width / 3), 18);
+        }
+
+        // Pirâmides
+        ctx.fillStyle = "#cda969";
+        ctx.beginPath();
+        ctx.moveTo(670, 435);
+        ctx.lineTo(780, 225);
+        ctx.lineTo(900, 435);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = "#b99259";
+        ctx.beginPath();
+        ctx.moveTo(780, 225);
+        ctx.lineTo(900, 435);
+        ctx.lineTo(830, 435);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = "#d3b070";
+        ctx.beginPath();
+        ctx.moveTo(830, 435);
+        ctx.lineTo(925, 285);
+        ctx.lineTo(1000, 435);
+        ctx.closePath();
+        ctx.fill();
+
+        // Cactos
+        drawCactus(120, 320, 1.3);
+        drawCactus(350, 350, 0.8);
+
+        // Areia
+        ctx.fillStyle = "#e4d084";
+        ctx.fillRect(0, 430, W, 38);
+
+        // Terra
+        ctx.fillStyle = "#694330";
+        ctx.fillRect(0, 468, W, 132);
+
+        ctx.fillStyle = "#8b603f";
+        for (let x = 0; x < W; x += 48) {
+          ctx.fillRect(x + 8, 490 + ((x / 48) % 3) * 20, 24, 12);
+          ctx.fillStyle = "#4e3227";
+          ctx.fillRect(x + 28, 545 + ((x / 48) % 2) * 16, 20, 10);
+          ctx.fillStyle = "#8b603f";
+        }
+      }
+
+      function drawCactus(x, y, scale) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(scale, scale);
+
+        ctx.fillStyle = "#4e702d";
+        ctx.fillRect(-10, 0, 22, 90);
+        ctx.fillRect(-42, 30, 35, 18);
+        ctx.fillRect(-42, 4, 16, 44);
+        ctx.fillRect(9, 24, 38, 18);
+        ctx.fillRect(31, -2, 16, 44);
+
+        ctx.fillStyle = "#65873b";
+        ctx.fillRect(-4, 0, 5, 90);
+        ctx.fillRect(-37, 6, 4, 42);
+        ctx.fillRect(36, 0, 4, 42);
+
+        ctx.restore();
+      }
+
+      function drawMenu() {
+        drawMenuBackground();
+
+        drawRetroText("AVENTURE FRIENDS", W / 2, 175, 54);
+
+        const items = [
+          { label: "ESCOLHER PERSONAGEM", y: 295 },
+          { label: "COMEÇAR", y: 360 }
+        ];
+
+        items.forEach((item, index) => {
+          const selected = index === menuIndex;
+
+          drawText(
+            item.label,
+            W / 2,
+            item.y,
+            31,
+            selected ? "#faf2d2" : "#dccfab",
+            "center",
+            "900"
+          );
+
+          if (selected) {
+            ctx.fillStyle = "#3f2c1f";
+            ctx.beginPath();
+            ctx.moveTo(W / 2 - 275, item.y);
+            ctx.lineTo(W / 2 - 250, item.y - 16);
+            ctx.lineTo(W / 2 - 250, item.y + 16);
+            ctx.closePath();
+            ctx.fill();
+          }
+        });
+
+        // Personagem selecionado
+        const selected = characters[selectedCharacter];
+
+        ctx.fillStyle = "rgba(63,44,31,.88)";
+        roundRect(ctx, 30, 448, 310, 125, 12);
+        ctx.fill();
+
+        ctx.strokeStyle = "#ead9a0";
+        ctx.lineWidth = 3;
+        roundRect(ctx, 30, 448, 310, 125, 12);
+        ctx.stroke();
+
+        if (selected.loaded) {
+          drawImageContain(selected.img, 42, 456, 78, 110);
+          drawText(selected.name, 135, 490, 18, "#fff", "left");
+          drawText("SELECIONADO", 135, 525, 16, "#e7eda4", "left");
+        } else {
+          drawText(selected.name, 55, 488, 18, "#fff", "left");
+          drawText("FOTO NÃO ENCONTRADA", 55, 525, 15, "#ff7f70", "left");
+        }
+
+        drawText(
+          "↑ ↓ + ENTER  •  toque/clique",
+          W / 2,
+          565,
+          17,
+          "#4e3b2a",
+          "center"
+        );
+      }
+
+      function drawSelection() {
+        drawMenuBackground();
+
+        ctx.fillStyle = "rgba(20,20,20,.35)";
+        ctx.fillRect(0, 0, W, H);
+
+        drawRetroText("ESCOLHA O PERSONAGEM", W / 2, 70, 40);
+
+        const cardW = 165;
+        const cardH = 300;
+        const gap = 18;
+        const total = cardW * 5 + gap * 4;
+        const startX = (W - total) / 2;
+        const y = 135;
+
+        for (let i = 0; i < characters.length; i++) {
+          const c = characters[i];
+          const x = startX + i * (cardW + gap);
+          const selected = i === selectedCharacter;
+
+          ctx.fillStyle = "#40342c";
+          roundRect(ctx, x, y, cardW, cardH, 12);
+          ctx.fill();
+
+          ctx.strokeStyle = selected ? COLORS.yellow : "#d7c696";
+          ctx.lineWidth = selected ? 5 : 2;
+          roundRect(ctx, x, y, cardW, cardH, 12);
+          ctx.stroke();
+
+          if (c.loaded) {
+            drawImageContain(c.img, x + 15, y + 15, cardW - 30, 200);
+          } else {
+            ctx.fillStyle = "#303440";
+            ctx.fillRect(x + 15, y + 15, cardW - 30, 200);
+            drawText("SEM FOTO", x + cardW / 2, y + 115, 17, "#fff", "center");
+          }
+
+          drawText(c.name, x + cardW / 2, y + 240, 15, "#fff", "center");
+
+          drawText(
+            c.loaded ? "TOQUE PARA ESCOLHER" : "ARQUIVO AUSENTE",
+            x + cardW / 2,
+            y + 272,
+            12,
+            c.loaded ? "#e6eaa8" : "#ff7468",
+            "center"
+          );
+        }
+
+        drawText(
+          "Ao escolher, você volta ao menu • ESC = voltar",
+          W / 2,
+          555,
+          16,
+          "#fff",
+          "center"
+        );
+      }
+
+      function drawImageContain(img, x, y, w, h) {
+        if (!img || !img.naturalWidth || !img.naturalHeight) return;
+
+        const scale = Math.min(w / img.naturalWidth, h / img.naturalHeight);
+        const dw = img.naturalWidth * scale;
+        const dh = img.naturalHeight * scale;
+        const dx = x + (w - dw) / 2;
+        const dy = y + h - dh;
+
+        ctx.drawImage(img, dx, dy, dw, dh);
+      }
+
+      function drawGame() {
+        ctx.fillStyle = COLORS.sky;
+        ctx.fillRect(0, 0, W, H);
+
+        // Nuvens
+        for (let x = 250; x < WORLD_WIDTH; x += 600) {
+          const nx = x - cameraX * 0.35;
+
+          ctx.fillStyle = COLORS.white;
+          ctx.beginPath();
+          ctx.arc(nx, 120, 25, 0, Math.PI * 2);
+          ctx.arc(nx + 30, 105, 32, 0, Math.PI * 2);
+          ctx.arc(nx + 62, 120, 25, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Plataformas
+        for (const p of platforms) {
+          const sx = p.x - cameraX;
+
+          ctx.fillStyle = COLORS.brown;
+          ctx.fillRect(sx, p.y, p.w, p.h);
+
+          ctx.fillStyle = COLORS.green;
+          ctx.fillRect(sx, p.y, p.w, 13);
+
+          ctx.fillStyle = COLORS.darkGreen;
+          ctx.fillRect(sx, p.y + 10, p.w, 4);
+        }
+
+        // Moedas
+        for (const coin of coins) {
+          if (coin.collected) continue;
+
+          const x = coin.x + coin.w / 2 - cameraX;
+          const y = coin.y + coin.h / 2;
+
+          ctx.fillStyle = COLORS.yellow;
+          ctx.beginPath();
+          ctx.arc(x, y, 12, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.strokeStyle = COLORS.orange;
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        }
+
+        // Inimigos
+        for (const enemy of enemies) {
+          if (!enemy.alive) continue;
+
+          const x = enemy.x - cameraX;
+
+          ctx.fillStyle = COLORS.brown;
+          roundRect(ctx, x, enemy.y, enemy.w, enemy.h, 10);
+          ctx.fill();
+
+          ctx.fillStyle = COLORS.white;
+          ctx.beginPath();
+          ctx.arc(x + 12, enemy.y + 14, 6, 0, Math.PI * 2);
+          ctx.arc(x + enemy.w - 12, enemy.y + 14, 6, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = COLORS.black;
+          ctx.beginPath();
+          ctx.arc(x + 13, enemy.y + 14, 3, 0, Math.PI * 2);
+          ctx.arc(x + enemy.w - 11, enemy.y + 14, 3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Bandeira
+        const fx = flag.x - cameraX;
+
+        ctx.fillStyle = COLORS.white;
+        ctx.fillRect(fx, flag.y, 10, flag.h);
+
+        ctx.fillStyle = COLORS.red;
+        ctx.beginPath();
+        ctx.moveTo(fx + 10, flag.y);
+        ctx.lineTo(fx + 105, flag.y + 30);
+        ctx.lineTo(fx + 10, flag.y + 60);
+        ctx.closePath();
+        ctx.fill();
+
+        // Jogador
+        const selected = characters[selectedCharacter];
+        if (selected.loaded) {
+          drawImageContain(
+            selected.img,
+            player.x - cameraX,
+            player.y,
+            player.w,
+            player.h
+          );
+        } else {
+          ctx.fillStyle = COLORS.blue;
+          ctx.fillRect(
+            player.x - cameraX,
+            player.y,
+            player.w,
+            player.h
+          );
+        }
+
+        // HUD
+        ctx.fillStyle = COLORS.black;
+        ctx.fillRect(0, 0, W, 55);
+
+        drawText(`SCORE ${String(points).padStart(6, "0")}`, 20, 28, 24, COLORS.white);
+        drawText(`COINS ${String(coinCount).padStart(2, "0")}`, W / 2, 28, 24, COLORS.yellow, "center");
+        drawText(`LIVES ${lives}`, W - 20, 18, 24, COLORS.white, "right");
+        drawText(characters[selectedCharacter].name, W - 20, 42, 15, COLORS.white, "right");
+
+        drawTouchControls();
+
+        if (gameOver || won) {
+          ctx.fillStyle = "rgba(0,0,0,.72)";
+          ctx.fillRect(0, 0, W, H);
+
+          drawText(
+            gameOver ? "GAME OVER" : "FASE COMPLETA!",
+            W / 2,
+            H / 2 - 35,
+            48,
+            gameOver ? COLORS.red : COLORS.yellow,
+            "center",
+            "900"
+          );
+
+          drawButton(W / 2 - 215, H / 2 + 55, 200, 58, "JOGAR DE NOVO");
+          drawButton(W / 2 + 15, H / 2 + 55, 200, 58, "PERSONAGENS");
+        }
+      }
+
+      function drawTouchControls() {
+        const alpha = 0.35;
+
+        ctx.fillStyle = `rgba(0,0,0,${alpha})`;
+        roundRect(ctx, controls.left.x, controls.left.y, controls.left.w, controls.left.h, 20);
+        ctx.fill();
+
+        roundRect(ctx, controls.right.x, controls.right.y, controls.right.w, controls.right.h, 20);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(
+          controls.jump.x + controls.jump.w / 2,
+          controls.jump.y + controls.jump.h / 2,
+          42,
+          0,
+          Math.PI * 2
+        );
+        ctx.fill();
+
+        ctx.fillStyle = COLORS.white;
+
+        ctx.beginPath();
+        ctx.moveTo(controls.left.x + 20, controls.left.y + 35);
+        ctx.lineTo(controls.left.x + 52, controls.left.y + 17);
+        ctx.lineTo(controls.left.x + 52, controls.left.y + 53);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(controls.right.x + 55, controls.right.y + 35);
+        ctx.lineTo(controls.right.x + 23, controls.right.y + 17);
+        ctx.lineTo(controls.right.x + 23, controls.right.y + 53);
+        ctx.closePath();
+        ctx.fill();
+
+        drawText(
+          "PULAR",
+          controls.jump.x + controls.jump.w / 2,
+          controls.jump.y + controls.jump.h / 2,
+          18,
+          COLORS.white,
+          "center"
+        );
+      }
+
+      function drawButton(x, y, w, h, text) {
+        ctx.fillStyle = COLORS.blue;
+        roundRect(ctx, x, y, w, h, 12);
+        ctx.fill();
+
+        ctx.strokeStyle = COLORS.white;
+        ctx.lineWidth = 2;
+        roundRect(ctx, x, y, w, h, 12);
+        ctx.stroke();
+
+        drawText(text, x + w / 2, y + h / 2, 17, COLORS.white, "center");
+      }
+
+      function roundRect(context, x, y, w, h, radius) {
+        const r = Math.min(radius, w / 2, h / 2);
+
+        context.beginPath();
+        context.moveTo(x + r, y);
+        context.arcTo(x + w, y, x + w, y + h, r);
+        context.arcTo(x + w, y + h, x, y + h, r);
+        context.arcTo(x, y + h, x, y, r);
+        context.arcTo(x, y, x + w, y, r);
+        context.closePath();
+      }
+
+      function draw() {
+        if (state === "menu") {
+          drawMenu();
+        } else if (state === "select") {
+          drawSelection();
+        } else {
+          drawGame();
+        }
+      }
+
+      function canvasPoint(event) {
+        const rect = canvas.getBoundingClientRect();
+        return {
+          x: (event.clientX - rect.left) * (W / rect.width),
+          y: (event.clientY - rect.top) * (H / rect.height)
+        };
+      }
+
+      function menuRects() {
+        return [
+          { x: W / 2 - 280, y: 266, w: 560, h: 58 },
+          { x: W / 2 - 180, y: 330, w: 360, h: 58 }
+        ];
+      }
+
+      function selectionCardRects() {
+        const cardW = 165;
+        const cardH = 300;
+        const gap = 18;
+        const total = cardW * 5 + gap * 4;
+        const startX = (W - total) / 2;
+        const y = 135;
+
+        return characters.map((_, i) => ({
+          x: startX + i * (cardW + gap),
+          y,
+          w: cardW,
+          h: cardH
+        }));
+      }
+
+      function handlePointerDown(id, x, y) {
+        pointers.set(id, { x, y });
+
+        if (state === "menu") {
+          const rects = menuRects();
+
+          if (pointInRect(x, y, rects[0])) {
+            menuIndex = 0;
+            state = "select";
+            return;
+          }
+
+          if (pointInRect(x, y, rects[1])) {
+            menuIndex = 1;
+            startGame();
+            return;
+          }
+        }
+
+        if (state === "select") {
+          const cards = selectionCardRects();
+
+          for (let i = 0; i < cards.length; i++) {
+            if (pointInRect(x, y, cards[i])) {
+              selectedCharacter = i;
+              if (characters[i].loaded) {
+                state = "menu";
+              }
+              return;
+            }
+          }
+        }
+
+        if (state === "game") {
+          if (gameOver || won) {
+            const retry = { x: W / 2 - 215, y: H / 2 + 55, w: 200, h: 58 };
+            const chars = { x: W / 2 + 15, y: H / 2 + 55, w: 200, h: 58 };
+
+            if (pointInRect(x, y, retry)) {
+              resetGame();
+              return;
+            }
+
+            if (pointInRect(x, y, chars)) {
+              state = "select";
+              return;
+            }
+          }
+
+          if (pointInRect(x, y, controls.jump)) {
+            pressed.jumpQueued = true;
+          }
+
+          updateTouchDirections();
+        }
+      }
+
+      function updateTouchDirections() {
+        let left = false;
+        let right = false;
+
+        for (const point of pointers.values()) {
+          if (pointInRect(point.x, point.y, controls.left)) left = true;
+          if (pointInRect(point.x, point.y, controls.right)) right = true;
+        }
+
+        pressed.left = left || keyboard.left;
+        pressed.right = right || keyboard.right;
+      }
+
+      function handlePointerMove(id, x, y) {
+        if (!pointers.has(id)) return;
+        pointers.set(id, { x, y });
+        updateTouchDirections();
+      }
+
+      function handlePointerUp(id) {
+        pointers.delete(id);
+        updateTouchDirections();
+      }
+
+      const keyboard = {
+        left: false,
+        right: false
+      };
+
+      window.addEventListener("keydown", (event) => {
+        const key = event.key.toLowerCase();
+
+        if (["arrowleft", "arrowright", "arrowup", "arrowdown", " ", "enter"].includes(key)) {
+          event.preventDefault();
+        }
+
+        if (state === "menu") {
+          if (key === "arrowup" || key === "w" || key === "arrowdown" || key === "s") {
+            menuIndex = 1 - menuIndex;
+          } else if (key === "enter" || key === " ") {
+            if (menuIndex === 0) {
+              state = "select";
+            } else {
+              startGame();
+            }
+          }
+          return;
+        }
+
+        if (state === "select") {
+          if (key === "escape") {
+            state = "menu";
+          } else if (key === "arrowleft" || key === "a") {
+            selectedCharacter = (selectedCharacter - 1 + characters.length) % characters.length;
+          } else if (key === "arrowright" || key === "d") {
+            selectedCharacter = (selectedCharacter + 1) % characters.length;
+          } else if (key === "enter" || key === " ") {
+            if (characters[selectedCharacter].loaded) {
+              state = "menu";
+            }
+          }
+          return;
+        }
+
+        if (state === "game") {
+          if (key === "a" || key === "arrowleft") {
+            keyboard.left = true;
+            pressed.left = true;
+          }
+
+          if (key === "d" || key === "arrowright") {
+            keyboard.right = true;
+            pressed.right = true;
+          }
+
+          if (key === "w" || key === "arrowup" || key === " ") {
+            pressed.jumpQueued = true;
+          }
+
+          if (key === "r") {
+            resetGame();
+          }
+
+          if (key === "c") {
+            state = "select";
+          }
+
+          if (key === "escape") {
+            state = "menu";
+          }
+        }
+      });
+
+      window.addEventListener("keyup", (event) => {
+        const key = event.key.toLowerCase();
+
+        if (key === "a" || key === "arrowleft") {
+          keyboard.left = false;
+        }
+
+        if (key === "d" || key === "arrowright") {
+          keyboard.right = false;
+        }
+
+        updateTouchDirections();
+      });
+
+      canvas.addEventListener("pointerdown", (event) => {
+        canvas.setPointerCapture?.(event.pointerId);
+        const p = canvasPoint(event);
+        handlePointerDown(event.pointerId, p.x, p.y);
+      });
+
+      canvas.addEventListener("pointermove", (event) => {
+        const p = canvasPoint(event);
+        handlePointerMove(event.pointerId, p.x, p.y);
+      });
+
+      canvas.addEventListener("pointerup", (event) => {
+        handlePointerUp(event.pointerId);
+      });
+
+      canvas.addEventListener("pointercancel", (event) => {
+        handlePointerUp(event.pointerId);
+      });
+
+      canvas.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+      });
+
+      let last = performance.now();
+      let accumulator = 0;
+      const step = 1000 / FPS;
+
+      function loop(now) {
+        const delta = Math.min(50, now - last);
+        last = now;
+        accumulator += delta;
+
+        while (accumulator >= step) {
+          if (state === "game") {
+            updateGame();
+          }
+
+          accumulator -= step;
+        }
+
+        draw();
+        requestAnimationFrame(loop);
+      }
+
+      requestAnimationFrame(loop);
+    })();
+  </script>
+</body>
+</html>
