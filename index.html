@@ -1,0 +1,2019 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#1f2533" />
+  <title>Aventura dos Amigos</title>
+  <meta name="description" content="Aventure Friends — jogo de plataforma e aventura.">
+  <meta name="application-name" content="Aventure Friends">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Aventure Friends">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+  <style>
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      margin: 0;
+      width: 100%;
+      min-height: 100%;
+      background: #111722;
+      font-family: "Courier New", monospace;
+      overflow: hidden;
+      overscroll-behavior: none;
+      touch-action: none;
+    }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #game-wrap {
+      position: relative;
+      width: 100vw;
+      height: 100svh;
+      max-width: none;
+      max-height: none;
+      display: flex;
+      align-items: stretch;
+      justify-content: stretch;
+      background: #111722;
+      overflow: hidden;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      image-rendering: auto;
+      background: #4ab9f5;
+      touch-action: none;
+    }
+
+    #touch-controls {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 4;
+      display: none;
+    }
+
+    .touch-btn {
+      position: absolute;
+      pointer-events: auto;
+      touch-action: none;
+      user-select: none;
+      border: 2px solid rgba(255,255,255,.48);
+      background: rgba(12, 24, 38, .60);
+      color: #fff;
+      font: 900 clamp(16px, 2vw, 24px) "Courier New", monospace;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      border-radius: 24%;
+      backdrop-filter: blur(2px);
+    }
+
+    .touch-btn:active {
+      transform: scale(.94);
+      background: rgba(30, 70, 105, .78);
+    }
+
+    #move-left {
+      left: 2.5%;
+      bottom: 3.5%;
+      width: 7.5%;
+      aspect-ratio: 1 / 1;
+    }
+
+    #move-right {
+      left: 11.5%;
+      bottom: 3.5%;
+      width: 7.5%;
+      aspect-ratio: 1 / 1;
+    }
+
+    #jump-btn {
+      right: 2.8%;
+      bottom: 3.2%;
+      width: 9%;
+      aspect-ratio: 1 / 1;
+      border-radius: 50%;
+      font-size: clamp(12px, 1.6vw, 20px);
+    }
+
+    #rotate-tip {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 28px;
+      text-align: center;
+      background: #111722;
+      color: white;
+      font-size: 20px;
+      line-height: 1.4;
+      z-index: 10;
+    }
+
+    @media (orientation: portrait) and (max-width: 700px) {
+      #rotate-tip {
+        display: flex;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="game-wrap">
+    <canvas id="game" width="1000" height="600" aria-label="Aventure Friends"></canvas>
+
+    <div id="touch-controls" aria-label="Controles do jogo">
+      <button id="move-left" class="touch-btn" type="button" aria-label="Mover para esquerda">◀</button>
+      <button id="move-right" class="touch-btn" type="button" aria-label="Mover para direita">▶</button>
+      <button id="jump-btn" class="touch-btn" type="button" aria-label="Pular">PULAR</button>
+    </div>
+  </div>
+
+  <div id="rotate-tip">
+    Vire o celular para a horizontal para jogar melhor.
+  </div>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+
+      const touchControls = document.getElementById("touch-controls");
+      const moveLeftButton = document.getElementById("move-left");
+      const moveRightButton = document.getElementById("move-right");
+      const jumpButton = document.getElementById("jump-btn");
+
+      const menuBackgroundImage = new Image();
+      menuBackgroundImage.src = "menu.png";
+
+      // Novos sprites do Aventure Friends
+      const enemySpriteImage = new Image();
+      enemySpriteImage.src = "inimigo.png";
+
+      const oneRealCoinImage = new Image();
+      oneRealCoinImage.src = "moeda_1_real.png";
+
+
+      const W = canvas.width;
+      const H = canvas.height;
+      const FPS = 60;
+
+      const COLORS = {
+        sky: "#46b9f5",
+        white: "#ffffff",
+        black: "#141923",
+        green: "#37be46",
+        darkGreen: "#1e7d2d",
+        brown: "#91552d",
+        darkBrown: "#5f3219",
+        yellow: "#ffd71e",
+        orange: "#ff9119",
+        red: "#e13737",
+        blue: "#2d73f5",
+        gray: "#5a5f6e",
+        darkGray: "#262a37"
+      };
+
+
+      function makeCharacterBackgroundTransparent(sourceImg) {
+        try {
+          const maxW = 420;
+          const maxH = 630;
+          const scale = Math.min(1, maxW / sourceImg.naturalWidth, maxH / sourceImg.naturalHeight);
+          const w = Math.max(1, Math.round(sourceImg.naturalWidth * scale));
+          const h = Math.max(1, Math.round(sourceImg.naturalHeight * scale));
+
+          const c = document.createElement("canvas");
+          c.width = w;
+          c.height = h;
+          const g = c.getContext("2d", { willReadFrequently: true });
+          g.drawImage(sourceImg, 0, 0, w, h);
+
+          const imageData = g.getImageData(0, 0, w, h);
+          const d = imageData.data;
+
+          const samples = [];
+          const pts = [
+            [0,0],[w-1,0],[0,h-1],[w-1,h-1],
+            [Math.floor(w/2),0],[Math.floor(w/2),h-1],
+            [0,Math.floor(h/2)],[w-1,Math.floor(h/2)]
+          ];
+          for (const [sx,sy] of pts) {
+            const i = (sy*w+sx)*4;
+            samples.push([d[i],d[i+1],d[i+2]]);
+          }
+
+          const similarToEdge = (r,gc,b) => {
+            let best = 999;
+            for (const s of samples) {
+              const dr=r-s[0], dg=gc-s[1], db=b-s[2];
+              const dist=Math.sqrt(dr*dr+dg*dg+db*db);
+              if (dist<best) best=dist;
+            }
+            return best < 54;
+          };
+
+          const visited = new Uint8Array(w*h);
+          const qx = new Int32Array(w*h);
+          const qy = new Int32Array(w*h);
+          let head=0, tail=0;
+
+          const push = (x,y) => {
+            if (x<0||y<0||x>=w||y>=h) return;
+            const p=y*w+x;
+            if (visited[p]) return;
+            const i=p*4;
+            if (!similarToEdge(d[i],d[i+1],d[i+2])) return;
+            visited[p]=1;
+            qx[tail]=x; qy[tail]=y; tail++;
+          };
+
+          for (let x=0;x<w;x++){ push(x,0); push(x,h-1); }
+          for (let y=0;y<h;y++){ push(0,y); push(w-1,y); }
+
+          while(head<tail){
+            const x=qx[head], y=qy[head]; head++;
+            const p=y*w+x, i=p*4;
+            d[i+3]=0;
+            push(x+1,y); push(x-1,y); push(x,y+1); push(x,y-1);
+          }
+
+          g.putImageData(imageData,0,0);
+          return c.toDataURL("image/png");
+        } catch (e) {
+          return null;
+        }
+      }
+      const characterFiles = [
+        { name: "Magal Supreme", file: "magal_supreme.png" },
+        { name: "Rosa Daniel", file: "rosa_daniel.png" },
+        { name: "Bibiel", file: "bibiel.png" },
+        { name: "Teteu175KAura", file: "teteu_175kaura.png" },
+        { name: "Leça", file: "leca.png" }
+      ];
+
+      const characters = characterFiles.map((data) => {
+        const img = new Image();
+        const entry = {
+          ...data,
+          img,
+          loaded: false,
+          failed: false
+        };
+
+        img.onload = () => {
+          entry.loaded = true;
+        };
+
+        img.onerror = () => {
+          entry.failed = true;
+        };
+
+        img.src = data.file;
+        return entry;
+      });
+
+      let state = "menu"; // menu | select | game
+      let menuIndex = 0;
+      let selectedCharacter = 0;
+
+      let gameMode = "normal"; // normal | hardcore
+
+      const deathTaunts = [
+        "PERDEU AURA EIN BETA",
+        "MOGADO",
+        "BRUTAL NÃO SOBROU NADA"
+      ];
+
+      let deathTauntIndex = 0;
+      let deathSplash = {
+        active: false,
+        text: "",
+        until: 0,
+        style: 0
+      };
+
+      let levelStartPoints = 0;
+      let levelStartCoinCount = 0;
+
+      let hardcoreSpikes = [];
+      let hardcoreDroppers = [];
+      let reverseUntil = 0;
+      let hardcoreNoticeText = "";
+      let hardcoreNoticeUntil = 0;
+      let fakeFlagTriggered = false;
+
+      const GROUND_Y = 510;
+
+      const PLAYER_W = 100;
+      const PLAYER_H = 150;
+
+      const player = {
+        x: 100,
+        y: GROUND_Y - PLAYER_H,
+        w: PLAYER_W,
+        h: PLAYER_H,
+        vx: 0,
+        vy: 0,
+        grounded: false
+      };
+
+      const SPEED = 6;
+      const GRAVITY = 0.70;
+      const JUMP = -14.5;
+      const MAX_FALL = 15;
+
+      function P(x, y, w, h = 25) {
+        return { x, y, w, h };
+      }
+
+      function E(start, min, max, speed = 2) {
+        return [start, min, max, speed];
+      }
+
+      const LEVELS = [
+        {
+          name: "FASE 1",
+          width: 5000,
+          theme: { sky: "#46b9f5", ground: "#91552d", grass: "#37be46", grassDark: "#1e7d2d" },
+          platforms: [
+            P(0,510,850,100), P(1000,510,800,100), P(1950,510,950,100), P(3050,510,800,100), P(4000,510,1100,100),
+            P(380,400,190), P(680,320,180), P(1120,410,180), P(1430,330,200), P(2100,390,190), P(2450,310,190), P(2750,390,170), P(3300,390,190), P(3600,310,190), P(4200,400,190), P(4500,320,190)
+          ],
+          coins: [[430,355],[500,355],[745,275],[1170,365],[1480,285],[1550,285],[2150,345],[2500,265],[2800,345],[3350,345],[3650,265],[4250,355],[4550,275],[4620,275]],
+          enemies: [E(600,450,800),E(1200,1050,1700),E(2200,2000,2800),E(3400,3150,3750),E(4300,4100,4750)],
+          flagX: 4800
+        },
+        {
+          name: "FASE 2",
+          width: 5200,
+          theme: { sky: "#77c9ff", ground: "#8b5a3c", grass: "#69c64a", grassDark: "#3b8f32" },
+          platforms: [
+            P(0,510,720,100), P(880,510,720,100), P(1770,510,760,100), P(2690,510,700,100), P(3570,510,720,100), P(4450,510,850,100),
+            P(280,405,170), P(560,330,170), P(990,395,160), P(1320,300,180), P(1880,400,180), P(2200,305,170), P(2790,390,180), P(3140,300,170), P(3700,400,180), P(4030,315,180), P(4570,390,190), P(4900,300,160)
+          ],
+          coins: [[330,365],[610,290],[1040,355],[1370,260],[1930,360],[2250,265],[2840,350],[3190,260],[3750,360],[4080,275],[4620,350],[4940,260]],
+          enemies: [E(520,350,690,2.2),E(1080,920,1500,2.2),E(1980,1820,2450,2.3),E(2920,2740,3300,2.3),E(3820,3600,4200,2.4),E(4680,4500,5100,2.4)],
+          flagX: 5050
+        },
+        {
+          name: "FASE 3",
+          width: 5400,
+          theme: { sky: "#8bd6d2", ground: "#80533d", grass: "#54b86b", grassDark: "#2f8250" },
+          platforms: [
+            P(0,510,650,100), P(820,510,650,100), P(1640,510,700,100), P(2510,510,650,100), P(3340,510,680,100), P(4200,510,1250,100),
+            P(220,390,170), P(500,300,160), P(900,390,170), P(1220,290,170), P(1730,395,170), P(2040,300,160), P(2600,390,170), P(2900,285,170), P(3440,390,180), P(3750,295,170), P(4300,395,170), P(4620,300,170), P(4930,390,170)
+          ],
+          coins: [[270,350],[550,260],[950,350],[1270,250],[1780,355],[2090,260],[2650,350],[2950,245],[3490,350],[3800,255],[4350,355],[4670,260],[4980,350]],
+          enemies: [E(470,250,620,2.4),E(1020,850,1400,2.5),E(1900,1680,2250,2.5),E(2760,2550,3100,2.6),E(3550,3380,3940,2.7),E(4470,4240,5200,2.8)],
+          flagX: 5250
+        },
+        {
+          name: "FASE 4",
+          width: 5600,
+          theme: { sky: "#f0b86c", ground: "#87513b", grass: "#75a84e", grassDark: "#506f36" },
+          platforms: [
+            P(0,510,620,100), P(790,510,610,100), P(1570,510,620,100), P(2370,510,610,100), P(3150,510,620,100), P(3940,510,610,100), P(4730,510,920,100),
+            P(230,400,150), P(480,315,150), P(880,390,160), P(1160,300,160), P(1660,390,160), P(1940,285,160), P(2460,390,160), P(2730,300,160), P(3240,390,160), P(3510,285,160), P(4030,390,160), P(4310,300,160), P(4820,390,170), P(5140,290,170)
+          ],
+          coins: [[270,360],[520,275],[920,350],[1200,260],[1700,350],[1980,245],[2500,350],[2770,260],[3280,350],[3550,245],[4070,350],[4350,260],[4860,350],[5180,250]],
+          enemies: [E(430,260,590,2.6),E(980,820,1350,2.7),E(1790,1610,2140,2.7),E(2550,2400,2920,2.8),E(3350,3190,3710,2.9),E(4140,3980,4500,3.0),E(4950,4770,5450,3.0)],
+          flagX: 5450
+        },
+        {
+          name: "FASE 5",
+          width: 5800,
+          theme: { sky: "#7f8fd3", ground: "#6d4a3c", grass: "#4c9f63", grassDark: "#2d6842" },
+          platforms: [
+            P(0,510,600,100), P(770,510,580,100), P(1530,510,580,100), P(2290,510,580,100), P(3060,510,580,100), P(3830,510,580,100), P(4600,510,1250,100),
+            P(180,390,155), P(430,295,155), P(820,400,155), P(1080,285,155), P(1600,390,155), P(1880,280,155), P(2360,400,155), P(2640,290,155), P(3130,390,155), P(3410,275,155), P(3900,400,155), P(4180,285,155), P(4700,390,160), P(5000,280,160), P(5300,390,160)
+          ],
+          coins: [[220,350],[470,255],[860,360],[1120,245],[1640,350],[1920,240],[2400,360],[2680,250],[3170,350],[3450,235],[3940,360],[4220,245],[4740,350],[5040,240],[5340,350]],
+          enemies: [E(410,220,570,2.8),E(970,800,1310,2.9),E(1740,1560,2070,3.0),E(2480,2320,2830,3.0),E(3260,3100,3600,3.1),E(4020,3860,4370,3.2),E(4850,4640,5580,3.2)],
+          flagX: 5640
+        },
+        {
+          name: "FASE 6",
+          width: 6000,
+          theme: { sky: "#7ab2c8", ground: "#725041", grass: "#6cae45", grassDark: "#456f30" },
+          platforms: [
+            P(0,510,580,100), P(750,510,560,100), P(1490,510,560,100), P(2230,510,560,100), P(2970,510,560,100), P(3710,510,560,100), P(4450,510,560,100), P(5190,510,900,100),
+            P(180,400,145), P(410,305,145), P(800,390,145), P(1040,285,145), P(1540,395,145), P(1780,275,145), P(2280,390,145), P(2520,290,145), P(3020,395,145), P(3260,275,145), P(3760,390,145), P(4000,290,145), P(4500,395,145), P(4740,275,145), P(5240,390,150), P(5520,285,150)
+          ],
+          coins: [[220,360],[450,265],[840,350],[1080,245],[1580,355],[1820,235],[2320,350],[2560,250],[3060,355],[3300,235],[3800,350],[4040,250],[4540,355],[4780,235],[5280,350],[5560,245]],
+          enemies: [E(390,210,550,3.0),E(940,780,1270,3.1),E(1670,1520,2010,3.1),E(2390,2260,2750,3.2),E(3150,3000,3490,3.3),E(3890,3740,4230,3.4),E(4630,4480,4970,3.4),E(5360,5220,5840,3.5)],
+          flagX: 5840
+        },
+        {
+          name: "FASE 7",
+          width: 6100,
+          theme: { sky: "#8794b7", ground: "#65483c", grass: "#5d9c61", grassDark: "#3a6745" },
+          platforms: [
+            P(0,510,560,100), P(730,510,540,100), P(1440,510,540,100), P(2150,510,540,100), P(2860,510,540,100), P(3570,510,540,100), P(4280,510,540,100), P(4990,510,1150,100),
+            P(150,390,145), P(390,290,145), P(770,400,145), P(1010,280,145), P(1490,390,145), P(1730,270,145), P(2200,400,145), P(2440,285,145), P(2910,390,145), P(3150,270,145), P(3620,400,145), P(3860,285,145), P(4330,390,145), P(4570,270,145), P(5040,400,145), P(5300,285,145), P(5580,390,145)
+          ],
+          coins: [[190,350],[430,250],[810,360],[1050,240],[1530,350],[1770,230],[2240,360],[2480,245],[2950,350],[3190,230],[3660,360],[3900,245],[4370,350],[4610,230],[5080,360],[5340,245],[5620,350]],
+          enemies: [E(370,180,530,3.2),E(900,760,1230,3.2),E(1600,1480,1940,3.3),E(2310,2180,2650,3.4),E(3020,2890,3350,3.5),E(3730,3600,4070,3.6),E(4440,4310,4780,3.6),E(5150,5020,5920,3.7)],
+          flagX: 5940
+        },
+        {
+          name: "FASE 8",
+          width: 6200,
+          theme: { sky: "#5d77a5", ground: "#60443a", grass: "#4c8a5c", grassDark: "#31593f" },
+          platforms: [
+            P(0,510,540,100), P(710,510,520,100), P(1400,510,520,100), P(2090,510,520,100), P(2780,510,520,100), P(3470,510,520,100), P(4160,510,520,100), P(4850,510,520,100), P(5540,510,700,100),
+            P(140,395,140), P(370,285,140), P(750,390,140), P(980,270,140), P(1440,400,140), P(1670,280,140), P(2130,390,140), P(2360,265,140), P(2820,400,140), P(3050,280,140), P(3510,390,140), P(3740,265,140), P(4200,400,140), P(4430,280,140), P(4890,390,140), P(5120,265,140), P(5580,400,140), P(5850,280,140)
+          ],
+          coins: [[180,355],[410,245],[790,350],[1020,230],[1480,360],[1710,240],[2170,350],[2400,225],[2860,360],[3090,240],[3550,350],[3780,225],[4240,360],[4470,240],[4930,350],[5160,225],[5620,360],[5890,240]],
+          enemies: [E(350,170,510,3.4),E(870,740,1190,3.5),E(1550,1430,1880,3.6),E(2240,2120,2570,3.6),E(2930,2810,3260,3.7),E(3620,3500,3950,3.8),E(4310,4190,4640,3.8),E(5000,4880,5330,3.9),E(5690,5570,6080,4.0)],
+          flagX: 6060
+        },
+        {
+          name: "FASE 9",
+          width: 6300,
+          theme: { sky: "#493f68", ground: "#553b36", grass: "#52784c", grassDark: "#344f34" },
+          platforms: [
+            P(0,510,520,100), P(690,510,500,100), P(1360,510,500,100), P(2030,510,500,100), P(2700,510,500,100), P(3370,510,500,100), P(4040,510,500,100), P(4710,510,500,100), P(5380,510,970,100),
+            P(130,400,135), P(350,275,135), P(730,390,135), P(950,260,135), P(1400,400,135), P(1620,275,135), P(2070,390,135), P(2290,255,135), P(2740,400,135), P(2960,275,135), P(3410,390,135), P(3630,255,135), P(4080,400,135), P(4300,275,135), P(4750,390,135), P(4970,255,135), P(5420,400,135), P(5680,275,135), P(5940,390,135)
+          ],
+          coins: [[170,360],[390,235],[770,350],[990,220],[1440,360],[1660,235],[2110,350],[2330,215],[2780,360],[3000,235],[3450,350],[3670,215],[4120,360],[4340,235],[4790,350],[5010,215],[5460,360],[5720,235],[5980,350]],
+          enemies: [E(330,160,490,3.6),E(830,720,1150,3.7),E(1500,1390,1820,3.8),E(2170,2060,2490,3.8),E(2840,2730,3160,3.9),E(3510,3400,3830,4.0),E(4180,4070,4500,4.0),E(4850,4740,5170,4.1),E(5520,5410,6160,4.2)],
+          flagX: 6160
+        },
+        {
+          name: "FASE 10",
+          width: 6500,
+          theme: { sky: "#293451", ground: "#4e3934", grass: "#557044", grassDark: "#35492e" },
+          platforms: [
+            P(0,510,500,100), P(670,510,480,100), P(1320,510,480,100), P(1970,510,480,100), P(2620,510,480,100), P(3270,510,480,100), P(3920,510,480,100), P(4570,510,480,100), P(5220,510,480,100), P(5870,510,700,100),
+            P(120,390,130), P(330,265,130), P(710,400,130), P(920,250,130), P(1360,390,130), P(1570,265,130), P(2010,400,130), P(2220,250,130), P(2660,390,130), P(2870,265,130), P(3310,400,130), P(3520,250,130), P(3960,390,130), P(4170,265,130), P(4610,400,130), P(4820,250,130), P(5260,390,130), P(5470,265,130), P(5910,400,130), P(6150,250,130)
+          ],
+          coins: [[160,350],[370,225],[750,360],[960,210],[1400,350],[1610,225],[2050,360],[2260,210],[2700,350],[2910,225],[3350,360],[3560,210],[4000,350],[4210,225],[4650,360],[4860,210],[5300,350],[5510,225],[5950,360],[6190,210]],
+          enemies: [E(310,150,470,3.8),E(790,700,1110,3.9),E(1440,1350,1760,4.0),E(2090,2000,2410,4.0),E(2740,2650,3060,4.1),E(3390,3300,3710,4.2),E(4040,3950,4360,4.2),E(4690,4600,5010,4.3),E(5340,5250,5660,4.4),E(5990,5900,6380,4.5)],
+          flagX: 6360
+        }
+      ];
+
+      let currentLevel = 0;
+      let WORLD_WIDTH = LEVELS[0].width;
+      let levelTheme = LEVELS[0].theme;
+      let platforms = [];
+      let coinPositions = [];
+      let enemyData = [];
+      let coins = [];
+      let enemies = [];
+      let flag = { x: 0, y: GROUND_Y - 220, w: 20, h: 220 };
+
+      let points = 0;
+      let coinCount = 0;
+      let lives = 3;
+      let cameraX = 0;
+      let gameOver = false;
+      let won = false;
+
+      function createCoins() {
+        coins = coinPositions.map(([x, y]) => ({
+          x, y, w: 24, h: 24, collected: false
+        }));
+      }
+
+      function createEnemies() {
+        enemies = enemyData.map(([start, min, max, speed = 2]) => ({
+          x: start,
+          y: GROUND_Y - 42,
+          w: 42,
+          h: 42,
+          vx: speed,
+          min,
+          max,
+          alive: true
+        }));
+      }
+
+      function buildHardcoreTraps() {
+        hardcoreSpikes = [];
+        hardcoreDroppers = [];
+        reverseUntil = 0;
+        hardcoreNoticeText = "";
+        hardcoreNoticeUntil = 0;
+        fakeFlagTriggered = false;
+
+        if (gameMode !== "hardcore") {
+          return;
+        }
+
+        const groundPlatforms = platforms.filter(
+          (p) => p.y === GROUND_Y && p.h >= 80 && p.w >= 420
+        );
+
+        groundPlatforms.forEach((p, index) => {
+          let offset = p.w * (index % 2 === 0 ? 0.62 : 0.40);
+
+          if (p.x === 0) {
+            offset = Math.min(p.w - 120, 560);
+          }
+
+          hardcoreSpikes.push({
+            x: Math.round(p.x + offset),
+            y: GROUND_Y,
+            w: 62,
+            h: 0,
+            maxH: 42,
+            triggered: false
+          });
+        });
+
+        const floatingPlatforms = platforms.filter(
+          (p) => p.h <= 30 && p.y < GROUND_Y
+        );
+
+        floatingPlatforms.forEach((p, index) => {
+          if (index % 3 === 1) {
+            p.hardcoreFall = true;
+            p.originalY = p.y;
+            p.fallTriggered = false;
+            p.fallAt = 0;
+          }
+        });
+
+        const level = LEVELS[currentLevel];
+
+        hardcoreDroppers = [
+          {
+            triggerX: Math.round(level.width * 0.31),
+            x: 0,
+            y: -90,
+            w: 74,
+            h: 74,
+            vy: 0,
+            state: "waiting"
+          },
+          {
+            triggerX: Math.round(level.width * 0.67),
+            x: 0,
+            y: -90,
+            w: 86,
+            h: 86,
+            vy: 0,
+            state: "waiting"
+          }
+        ];
+      }
+
+      function hardcoreKillCheck() {
+        if (gameMode !== "hardcore" || deathSplash.active || gameOver || won) {
+          return;
+        }
+
+        for (const spike of hardcoreSpikes) {
+          if (spike.h <= 8) continue;
+
+          const rect = {
+            x: spike.x,
+            y: spike.y - spike.h,
+            w: spike.w,
+            h: spike.h
+          };
+
+          if (intersects(player, rect)) {
+            loseLife();
+            return;
+          }
+        }
+
+        for (const dropper of hardcoreDroppers) {
+          if (dropper.state !== "falling") continue;
+
+          if (intersects(player, dropper)) {
+            dropper.state = "done";
+            loseLife();
+            return;
+          }
+        }
+      }
+
+      function updateHardcoreTraps() {
+        if (gameMode !== "hardcore" || deathSplash.active || gameOver || won) {
+          return;
+        }
+
+        const now = performance.now();
+
+        for (const spike of hardcoreSpikes) {
+          if (!spike.triggered && player.x + player.w > spike.x - 145) {
+            spike.triggered = true;
+            hardcoreNoticeText = "OPA... O CHÃO NÃO ERA CONFIÁVEL";
+            hardcoreNoticeUntil = now + 900;
+          }
+
+          if (spike.triggered && spike.h < spike.maxH) {
+            spike.h = Math.min(spike.maxH, spike.h + 4.5);
+          }
+        }
+
+        for (const platform of platforms) {
+          if (!platform.hardcoreFall) continue;
+
+          const standingOn =
+            player.x + player.w > platform.x &&
+            player.x < platform.x + platform.w &&
+            Math.abs((player.y + player.h) - platform.y) <= 8;
+
+          if (
+            standingOn &&
+            !platform.fallTriggered
+          ) {
+            platform.fallTriggered = true;
+            platform.fallAt = now + 430;
+            hardcoreNoticeText = "ESSA PLATAFORMA TÁ SUSPEITA...";
+            hardcoreNoticeUntil = now + 900;
+          }
+
+          if (
+            platform.fallTriggered &&
+            now >= platform.fallAt &&
+            platform.y < H + 180
+          ) {
+            platform.y += 6;
+          }
+        }
+
+        for (const dropper of hardcoreDroppers) {
+          if (
+            dropper.state === "waiting" &&
+            player.x >= dropper.triggerX
+          ) {
+            dropper.state = "falling";
+            dropper.x = player.x + player.w * 0.10;
+            dropper.y = -dropper.h - 20;
+            dropper.vy = 1.5;
+
+            hardcoreNoticeText = "OLHA PRA CIMA!";
+            hardcoreNoticeUntil = now + 850;
+          }
+
+          if (dropper.state === "falling") {
+            dropper.vy += 0.55;
+            dropper.y += dropper.vy;
+
+            if (dropper.y > H + 160) {
+              dropper.state = "done";
+            }
+          }
+        }
+
+        // Uma trollagem de controles invertidos no meio da fase.
+        const reverseTrigger = LEVELS[currentLevel].width * 0.48;
+
+        if (
+          reverseUntil === 0 &&
+          player.x >= reverseTrigger &&
+          player.x <= reverseTrigger + 30
+        ) {
+          reverseUntil = now + 1800;
+          hardcoreNoticeText = "CONTROLES INVERTIDOS!";
+          hardcoreNoticeUntil = now + 1200;
+        }
+
+        hardcoreKillCheck();
+      }
+
+      function drawHardcoreTraps() {
+        if (gameMode !== "hardcore") {
+          return;
+        }
+
+        for (const spike of hardcoreSpikes) {
+          if (spike.h <= 0) continue;
+
+          const sx = spike.x - cameraX;
+          const baseY = spike.y;
+          const count = 3;
+          const partW = spike.w / count;
+
+          ctx.fillStyle = "#d62d2d";
+          ctx.strokeStyle = "#5e1111";
+          ctx.lineWidth = 2;
+
+          for (let i = 0; i < count; i++) {
+            ctx.beginPath();
+            ctx.moveTo(sx + i * partW, baseY);
+            ctx.lineTo(sx + i * partW + partW / 2, baseY - spike.h);
+            ctx.lineTo(sx + (i + 1) * partW, baseY);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+          }
+        }
+
+        for (const dropper of hardcoreDroppers) {
+          if (dropper.state !== "falling") continue;
+
+          const x = dropper.x - cameraX;
+
+          ctx.fillStyle = "#4a2630";
+          roundRect(ctx, x, dropper.y, dropper.w, dropper.h, 10);
+          ctx.fill();
+
+          ctx.strokeStyle = "#ff4b4b";
+          ctx.lineWidth = 5;
+          roundRect(ctx, x, dropper.y, dropper.w, dropper.h, 10);
+          ctx.stroke();
+
+          drawText(
+            "!",
+            x + dropper.w / 2,
+            dropper.y + dropper.h / 2,
+            42,
+            "#ffffff",
+            "center",
+            "900"
+          );
+        }
+
+        if (
+          hardcoreNoticeText &&
+          performance.now() < hardcoreNoticeUntil
+        ) {
+          ctx.fillStyle = "rgba(0,0,0,.72)";
+          roundRect(ctx, W / 2 - 220, 75, 440, 48, 12);
+          ctx.fill();
+
+          drawText(
+            hardcoreNoticeText,
+            W / 2,
+            99,
+            17,
+            "#ffdf45",
+            "center",
+            "900"
+          );
+        }
+      }
+
+      function drawDeathSplash() {
+        if (!deathSplash.active) return;
+
+        const style = deathSplash.style % 3;
+
+        const palettes = [
+          ["#250b0b", "#ff4d2e", "#ffd13b"],
+          ["#190923", "#d348ff", "#ff9cff"],
+          ["#090909", "#ff2525", "#ffffff"]
+        ];
+
+        const [bg, accent, textColor] = palettes[style];
+
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, W, H);
+
+        const selected = characters[selectedCharacter];
+
+        if (selected && selected.loaded) {
+          ctx.save();
+          ctx.globalAlpha = 0.22;
+          ctx.filter = "grayscale(1) contrast(1.4)";
+
+          drawImageContain(
+            selected.img,
+            W * 0.60,
+            40,
+            W * 0.36,
+            H - 80
+          );
+
+          ctx.restore();
+          ctx.filter = "none";
+        }
+
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 8;
+        roundRect(ctx, 70, 85, W - 140, H - 170, 25);
+        ctx.stroke();
+
+        drawText(
+          deathSplash.text,
+          W / 2,
+          H / 2 - 25,
+          style === 2 ? 42 : 48,
+          textColor,
+          "center",
+          "900"
+        );
+
+        drawText(
+          gameMode === "hardcore" ? "HARDCORE NÃO PERDOA" : "TENTA DE NOVO",
+          W / 2,
+          H / 2 + 45,
+          19,
+          accent,
+          "center",
+          "900"
+        );
+      }
+
+      function loadLevel(index) {
+        currentLevel = Math.max(0, Math.min(LEVELS.length - 1, index));
+        const level = LEVELS[currentLevel];
+
+        WORLD_WIDTH = level.width;
+        levelTheme = level.theme;
+        platforms = level.platforms.map((p) => ({ ...p }));
+        coinPositions = level.coins.map((p) => [...p]);
+        enemyData = level.enemies.map((e) => [...e]);
+        flag = {
+          x: level.flagX,
+          y: GROUND_Y - 220,
+          w: 20,
+          h: 220
+        };
+
+        player.x = 100;
+        player.y = GROUND_Y - PLAYER_H;
+        player.vx = 0;
+        player.vy = 0;
+        player.grounded = false;
+
+        cameraX = 0;
+        gameOver = false;
+        won = false;
+
+        createCoins();
+        createEnemies();
+
+        buildHardcoreTraps();
+
+        levelStartPoints = points;
+        levelStartCoinCount = coinCount;
+      }
+
+      loadLevel(0);
+
+      const controls = {
+        left: { x: 25, y: H - 95, w: 75, h: 70 },
+        right: { x: 115, y: H - 95, w: 75, h: 70 },
+        jump: { x: W - 115, y: H - 105, w: 90, h: 80 }
+      };
+
+      const pressed = {
+        left: false,
+        right: false,
+        jumpQueued: false
+      };
+
+      const buttonHeld = {
+        left: false,
+        right: false
+      };
+
+      const pointers = new Map();
+
+      function intersects(a, b) {
+        return (
+          a.x < b.x + b.w &&
+          a.x + a.w > b.x &&
+          a.y < b.y + b.h &&
+          a.y + a.h > b.y
+        );
+      }
+
+      function pointInRect(x, y, r) {
+        return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+      }
+
+      function resetGame() {
+        points = 0;
+        coinCount = 0;
+        lives = 3;
+
+        deathSplash.active = false;
+        deathSplash.until = 0;
+
+        loadLevel(0);
+      }
+
+      function nextLevelOrFinish() {
+        if (gameOver) {
+          resetGame();
+          return;
+        }
+
+        if (!won) return;
+
+        if (currentLevel < LEVELS.length - 1) {
+          loadLevel(currentLevel + 1);
+        } else {
+          resetGame();
+          state = "menu";
+        }
+      }
+
+      function respawnAfterDeath() {
+        if (lives <= 0) {
+          gameOver = true;
+          return;
+        }
+
+        if (gameMode === "hardcore") {
+          const keepLives = lives;
+
+          points = levelStartPoints;
+          coinCount = levelStartCoinCount;
+
+          loadLevel(currentLevel);
+          lives = keepLives;
+          return;
+        }
+
+        player.x = 100;
+        player.y = GROUND_Y - PLAYER_H;
+        player.vx = 0;
+        player.vy = 0;
+        player.grounded = false;
+        cameraX = 0;
+      }
+
+      function loseLife() {
+        if (
+          gameOver ||
+          won ||
+          deathSplash.active
+        ) {
+          return;
+        }
+
+        lives -= 1;
+
+        const text = deathTaunts[
+          deathTauntIndex % deathTaunts.length
+        ];
+
+        deathSplash = {
+          active: true,
+          text,
+          until: performance.now() + 1150,
+          style: deathTauntIndex % deathTaunts.length
+        };
+
+        deathTauntIndex += 1;
+
+        player.vx = 0;
+        player.vy = 0;
+
+        releaseTouchButtons();
+      }
+
+      function releaseTouchButtons() {
+        buttonHeld.left = false;
+        buttonHeld.right = false;
+        pressed.left = false;
+        pressed.right = false;
+        pointers.clear();
+      }
+
+      function startGame(mode = "normal") {
+        releaseTouchButtons();
+
+        const selected = characters[selectedCharacter];
+
+        if (!selected.loaded) {
+          state = "select";
+          return;
+        }
+
+        gameMode = mode;
+        resetGame();
+        state = "game";
+      }
+
+      function selectCharacter(index) {
+        releaseTouchButtons();
+        if (index < 0 || index >= characters.length) return;
+        selectedCharacter = index;
+
+        if (characters[selectedCharacter].loaded) {
+          state = "menu";
+        }
+      }
+
+      function updateGame() {
+        if (deathSplash.active) {
+          pressed.jumpQueued = false;
+
+          if (performance.now() >= deathSplash.until) {
+            deathSplash.active = false;
+            respawnAfterDeath();
+          }
+
+          return;
+        }
+
+        if (gameOver || won) {
+          pressed.jumpQueued = false;
+          return;
+        }
+
+        player.vx = 0;
+
+        const reverseControls =
+          gameMode === "hardcore" &&
+          performance.now() < reverseUntil;
+
+        const leftPressed = reverseControls
+          ? pressed.right
+          : pressed.left;
+
+        const rightPressed = reverseControls
+          ? pressed.left
+          : pressed.right;
+
+        if (leftPressed && !rightPressed) {
+          player.vx = -SPEED;
+        } else if (rightPressed && !leftPressed) {
+          player.vx = SPEED;
+        }
+
+        if (pressed.jumpQueued && player.grounded) {
+          player.vy = JUMP;
+          player.grounded = false;
+        }
+
+        pressed.jumpQueued = false;
+
+        // Movimento horizontal
+        player.x += player.vx;
+
+        for (const p of platforms) {
+          if (intersects(player, p)) {
+            if (player.vx > 0) {
+              player.x = p.x - player.w;
+            } else if (player.vx < 0) {
+              player.x = p.x + p.w;
+            }
+          }
+        }
+
+        player.x = Math.max(0, Math.min(WORLD_WIDTH - player.w, player.x));
+
+        // Movimento vertical
+        player.vy += GRAVITY;
+        if (player.vy > MAX_FALL) player.vy = MAX_FALL;
+
+        player.y += player.vy;
+        player.grounded = false;
+
+        for (const p of platforms) {
+          if (intersects(player, p)) {
+            if (player.vy > 0) {
+              player.y = p.y - player.h;
+              player.vy = 0;
+              player.grounded = true;
+            } else if (player.vy < 0) {
+              player.y = p.y + p.h;
+              player.vy = 0;
+            }
+          }
+        }
+
+        // Sensor dos pés
+        const foot = {
+          x: player.x + 8,
+          y: player.y + player.h,
+          w: player.w - 16,
+          h: 4
+        };
+
+        for (const p of platforms) {
+          if (intersects(foot, p)) {
+            player.grounded = true;
+            break;
+          }
+        }
+
+        updateHardcoreTraps();
+
+        if (deathSplash.active) {
+          return;
+        }
+
+        if (player.y > H + 140) {
+          loseLife();
+        }
+
+        // Moedas
+        for (const coin of coins) {
+          if (!coin.collected && intersects(player, coin)) {
+            coin.collected = true;
+            coinCount += 1;
+            points += 100;
+          }
+        }
+
+        // Inimigos
+        for (const enemy of enemies) {
+          if (!enemy.alive) continue;
+
+          enemy.x += enemy.vx;
+
+          if (enemy.x <= enemy.min) {
+            enemy.x = enemy.min;
+            enemy.vx = Math.abs(enemy.vx);
+          }
+
+          if (enemy.x >= enemy.max) {
+            enemy.x = enemy.max;
+            enemy.vx = -Math.abs(enemy.vx);
+          }
+
+          if (intersects(player, enemy)) {
+            const playerBottom = player.y + player.h;
+
+            if (player.vy > 0 && playerBottom <= enemy.y + 30) {
+              enemy.alive = false;
+              player.y = enemy.y - player.h;
+              player.vy = -9;
+              points += 200;
+            } else {
+              loseLife();
+              break;
+            }
+          }
+        }
+
+        if (intersects(player, flag)) {
+          if (
+            gameMode === "hardcore" &&
+            !fakeFlagTriggered
+          ) {
+            fakeFlagTriggered = true;
+            flag.x = Math.max(250, flag.x - 460);
+
+            hardcoreNoticeText = "A BANDEIRA FUGIU KKK";
+            hardcoreNoticeUntil = performance.now() + 1300;
+
+            player.x += 55;
+          } else {
+            won = true;
+            points += 1000;
+          }
+        }
+
+        cameraX = player.x + player.w / 2 - W / 2;
+        cameraX = Math.max(0, Math.min(WORLD_WIDTH - W, cameraX));
+      }
+
+      function drawText(text, x, y, size, color, align = "left", weight = "700") {
+        ctx.font = `${weight} ${size}px "Courier New", monospace`;
+        ctx.fillStyle = color;
+        ctx.textAlign = align;
+        ctx.textBaseline = "middle";
+        ctx.fillText(text, x, y);
+      }
+
+      function drawRetroText(text, x, y, size, align = "center") {
+        ctx.font = `900 ${size}px "Courier New", monospace`;
+        ctx.textAlign = align;
+        ctx.textBaseline = "middle";
+
+        ctx.fillStyle = "#5b3d2a";
+        ctx.fillText(text, x + 4, y + 5);
+
+        ctx.fillStyle = "#f7eecb";
+        ctx.fillText(text, x, y);
+      }
+
+      function drawMenuBackground() {
+        ctx.fillStyle = "#0d1722";
+        ctx.fillRect(0, 0, W, H);
+
+        if (menuBackgroundImage.complete && menuBackgroundImage.naturalWidth) {
+          // COVER: preenche 100% do canvas, cortando apenas as bordas necessárias.
+          const scale = Math.max(
+            W / menuBackgroundImage.naturalWidth,
+            H / menuBackgroundImage.naturalHeight
+          );
+
+          const drawW = menuBackgroundImage.naturalWidth * scale;
+          const drawH = menuBackgroundImage.naturalHeight * scale;
+          const dx = (W - drawW) / 2;
+          const dy = (H - drawH) / 2;
+
+          ctx.drawImage(
+            menuBackgroundImage,
+            dx,
+            dy,
+            drawW,
+            drawH
+          );
+        }
+
+        const grad = ctx.createLinearGradient(0, H * 0.48, 0, H);
+        grad.addColorStop(0, "rgba(5,10,18,0.02)");
+        grad.addColorStop(0.58, "rgba(5,10,18,0.26)");
+        grad.addColorStop(1, "rgba(5,10,18,0.72)");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, W, H);
+      }
+
+      function drawCactus(x, y, scale) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(scale, scale);
+
+        ctx.fillStyle = "#4e702d";
+        ctx.fillRect(-10, 0, 22, 90);
+        ctx.fillRect(-42, 30, 35, 18);
+        ctx.fillRect(-42, 4, 16, 44);
+        ctx.fillRect(9, 24, 38, 18);
+        ctx.fillRect(31, -2, 16, 44);
+
+        ctx.fillStyle = "#65873b";
+        ctx.fillRect(-4, 0, 5, 90);
+        ctx.fillRect(-37, 6, 4, 42);
+        ctx.fillRect(36, 0, 4, 42);
+
+        ctx.restore();
+      }
+
+      function drawMenu() {
+        drawMenuBackground();
+
+        const panelX = W / 2 - 300;
+        const panelY = 300;
+        const panelW = 600;
+        const panelH = 210;
+
+        ctx.fillStyle = "rgba(12,20,31,.72)";
+        roundRect(ctx, panelX, panelY, panelW, panelH, 20);
+        ctx.fill();
+
+        ctx.strokeStyle = "rgba(255,214,72,.82)";
+        ctx.lineWidth = 3;
+        roundRect(ctx, panelX, panelY, panelW, panelH, 20);
+        ctx.stroke();
+
+        const items = [
+          { label: "ESCOLHER PERSONAGEM", y: 345 },
+          { label: "COMEÇAR NORMAL", y: 405 },
+          { label: "HARDCORE", y: 465 }
+        ];
+
+        items.forEach((item, index) => {
+          const selected = index === menuIndex;
+
+          const itemColor =
+            index === 2
+              ? (selected ? "#ff3f3f" : "#ffb0a6")
+              : (selected ? "#ffe14d" : "#ffffff");
+
+          drawText(
+            item.label,
+            W / 2,
+            item.y,
+            31,
+            itemColor,
+            "center",
+            "900"
+          );
+
+          if (selected) {
+            ctx.fillStyle = "#ffe14d";
+            ctx.beginPath();
+            ctx.moveTo(W / 2 - 255, item.y);
+            ctx.lineTo(W / 2 - 230, item.y - 15);
+            ctx.lineTo(W / 2 - 230, item.y + 15);
+            ctx.closePath();
+            ctx.fill();
+          }
+        });
+
+        const selected = characters[selectedCharacter];
+
+        ctx.fillStyle = "rgba(12,20,31,.76)";
+        roundRect(ctx, 26, 505, 345, 66, 12);
+        ctx.fill();
+
+        drawText(
+          selected.loaded ? `PERSONAGEM: ${selected.name}` : `FOTO AUSENTE: ${selected.name}`,
+          45,
+          538,
+          17,
+          selected.loaded ? "#ffffff" : "#ff8378",
+          "left"
+        );
+
+        drawText(
+          `${LEVELS.length} FASES • NORMAL + HARDCORE • ↑ ↓ + ENTER`,
+          W - 28,
+          550,
+          15,
+          "#ffffff",
+          "right"
+        );
+      }
+
+      function drawSelection() {
+        drawMenuBackground();
+
+        ctx.fillStyle = "rgba(20,20,20,.35)";
+        ctx.fillRect(0, 0, W, H);
+
+        drawRetroText("ESCOLHA O PERSONAGEM", W / 2, 70, Math.max(28, Math.min(40, W / 32)));
+
+        const baseCardW = 165;
+        const baseCardH = 300;
+        const baseGap = 18;
+        const scaleCards = Math.min(1, (W - 90) / (baseCardW * 5 + baseGap * 4), (H - 220) / baseCardH);
+        const cardW = Math.max(125, baseCardW * scaleCards);
+        const cardH = Math.max(240, baseCardH * scaleCards);
+        const gap = Math.max(10, baseGap * scaleCards);
+        const total = cardW * 5 + gap * 4;
+        const startX = Math.max(20, (W - total) / 2);
+        const y = Math.max(120, (H - cardH) / 2 - 15);
+
+        for (let i = 0; i < characters.length; i++) {
+          const c = characters[i];
+          const x = startX + i * (cardW + gap);
+          const selected = i === selectedCharacter;
+
+          ctx.fillStyle = "#40342c";
+          roundRect(ctx, x, y, cardW, cardH, 12);
+          ctx.fill();
+
+          ctx.strokeStyle = selected ? COLORS.yellow : "#d7c696";
+          ctx.lineWidth = selected ? 5 : 2;
+          roundRect(ctx, x, y, cardW, cardH, 12);
+          ctx.stroke();
+
+          if (c.loaded) {
+            const portraitPad = Math.max(10, 15 * scaleCards);
+            const portraitH = cardH * 0.62;
+            drawImageContain(c.img, x + portraitPad, y + portraitPad, cardW - portraitPad * 2, portraitH);
+          } else {
+            ctx.fillStyle = "#303440";
+            const portraitPad = Math.max(10, 15 * scaleCards);
+            const portraitH = cardH * 0.62;
+            ctx.fillRect(x + portraitPad, y + portraitPad, cardW - portraitPad * 2, portraitH);
+            drawText("SEM FOTO", x + cardW / 2, y + cardH * 0.36, 17, "#fff", "center");
+          }
+
+          drawText(c.name, x + cardW / 2, y + cardH * 0.80, Math.max(13, 15 * scaleCards), "#fff", "center");
+
+          drawText(
+            c.loaded ? "TOQUE PARA ESCOLHER" : "ARQUIVO AUSENTE",
+            x + cardW / 2,
+            y + cardH * 0.91,
+            12,
+            c.loaded ? "#e6eaa8" : "#ff7468",
+            "center"
+          );
+        }
+
+        drawText(
+          "Ao escolher, você volta ao menu • ESC = voltar",
+          W / 2,
+          555,
+          16,
+          "#fff",
+          "center"
+        );
+      }
+
+      function drawImageContain(img, x, y, w, h) {
+        if (!img || !img.naturalWidth || !img.naturalHeight) return;
+
+        const scale = Math.min(w / img.naturalWidth, h / img.naturalHeight);
+        const dw = img.naturalWidth * scale;
+        const dh = img.naturalHeight * scale;
+        const dx = x + (w - dw) / 2;
+        const dy = y + h - dh;
+
+        ctx.drawImage(img, dx, dy, dw, dh);
+      }
+
+      function drawGame() {
+        ctx.fillStyle = levelTheme.sky;
+        ctx.fillRect(0, 0, W, H);
+
+        // Nuvens
+        for (let x = 250; x < WORLD_WIDTH; x += 600) {
+          const nx = x - cameraX * 0.35;
+
+          ctx.fillStyle = COLORS.white;
+          ctx.beginPath();
+          ctx.arc(nx, 120, 25, 0, Math.PI * 2);
+          ctx.arc(nx + 30, 105, 32, 0, Math.PI * 2);
+          ctx.arc(nx + 62, 120, 25, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Plataformas
+        for (const p of platforms) {
+          const sx = p.x - cameraX;
+
+          ctx.fillStyle = levelTheme.ground;
+          ctx.fillRect(sx, p.y, p.w, p.h);
+
+          ctx.fillStyle = levelTheme.grass;
+          ctx.fillRect(sx, p.y, p.w, 13);
+
+          ctx.fillStyle = levelTheme.grassDark;
+          ctx.fillRect(sx, p.y + 10, p.w, 4);
+        }
+
+        // Moedas de R$1
+        for (const coin of coins) {
+          if (coin.collected) continue;
+
+          const x = coin.x - cameraX;
+          const y = coin.y;
+
+          if (oneRealCoinImage.complete && oneRealCoinImage.naturalWidth) {
+            ctx.save();
+            ctx.shadowColor = "rgba(255,220,70,.72)";
+            ctx.shadowBlur = 9;
+            ctx.drawImage(oneRealCoinImage, x - 6, y - 6, 36, 36);
+            ctx.restore();
+          } else {
+            ctx.fillStyle = COLORS.yellow;
+            ctx.beginPath();
+            ctx.arc(x + coin.w / 2, y + coin.h / 2, 12, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+
+        // Inimigos com a nova imagem
+        for (const enemy of enemies) {
+          if (!enemy.alive) continue;
+
+          const x = enemy.x - cameraX;
+
+          if (enemySpriteImage.complete && enemySpriteImage.naturalWidth) {
+            ctx.save();
+            ctx.drawImage(
+              enemySpriteImage,
+              x - 5,
+              enemy.y - 12,
+              enemy.w + 10,
+              enemy.h + 16
+            );
+            ctx.restore();
+          } else {
+            ctx.fillStyle = COLORS.brown;
+            roundRect(ctx, x, enemy.y, enemy.w, enemy.h, 10);
+            ctx.fill();
+          }
+        }
+
+        // Bandeira
+        const fx = flag.x - cameraX;
+
+        ctx.fillStyle = COLORS.white;
+        ctx.fillRect(fx, flag.y, 10, flag.h);
+
+        ctx.fillStyle = COLORS.red;
+        ctx.beginPath();
+        ctx.moveTo(fx + 10, flag.y);
+        ctx.lineTo(fx + 105, flag.y + 30);
+        ctx.lineTo(fx + 10, flag.y + 60);
+        ctx.closePath();
+        ctx.fill();
+
+        drawHardcoreTraps();
+
+        // Jogador
+        const selected = characters[selectedCharacter];
+        if (selected.loaded) {
+          drawImageContain(
+            selected.img,
+            player.x - cameraX,
+            player.y,
+            player.w,
+            player.h
+          );
+        } else {
+          ctx.fillStyle = COLORS.blue;
+          ctx.fillRect(
+            player.x - cameraX,
+            player.y,
+            player.w,
+            player.h
+          );
+        }
+
+        // HUD
+        ctx.fillStyle = COLORS.black;
+        ctx.fillRect(0, 0, W, 55);
+
+        drawText(`SCORE ${String(points).padStart(6, "0")}`, 20, 28, 24, COLORS.white);
+        drawText(`R$ ${String(coinCount).padStart(2, "0")}`, W / 2, 28, 24, COLORS.yellow, "center");
+        drawText(`LIVES ${lives}`, W - 20, 16, 22, COLORS.white, "right");
+        drawText(`FASE ${currentLevel + 1}/${LEVELS.length}`, W - 20, 38, 15, COLORS.yellow, "right");
+        drawText(characters[selectedCharacter].name, W - 175, 38, 14, COLORS.white, "right");
+
+        if (gameMode === "hardcore") {
+          drawText(
+            "HARDCORE",
+            W / 2,
+            50,
+            14,
+            "#ff4b4b",
+            "center",
+            "900"
+          );
+        }
+
+        if (deathSplash.active) {
+          drawDeathSplash();
+          return;
+        }
+
+        if (gameOver || won) {
+          ctx.fillStyle = "rgba(0,0,0,.72)";
+          ctx.fillRect(0, 0, W, H);
+
+          const ultimaFase = currentLevel === LEVELS.length - 1;
+          const tituloFim = gameOver
+            ? "GAME OVER"
+            : (ultimaFase ? "VOCÊ ZEROU!" : `FASE ${currentLevel + 1} COMPLETA!`);
+
+          drawText(
+            tituloFim,
+            W / 2,
+            H / 2 - 45,
+            44,
+            gameOver ? COLORS.red : COLORS.yellow,
+            "center",
+            "900"
+          );
+
+          if (!gameOver && !ultimaFase) {
+            drawText(
+              `PRÓXIMA: FASE ${currentLevel + 2}`,
+              W / 2,
+              H / 2 + 5,
+              19,
+              COLORS.white,
+              "center"
+            );
+          }
+
+          if (gameMode === "hardcore") {
+            drawText(
+              "MODO HARDCORE",
+              W / 2,
+              H / 2 + 28,
+              16,
+              "#ff5a5a",
+              "center",
+              "900"
+            );
+          }
+
+          const primaryLabel = gameOver
+            ? "RECOMEÇAR"
+            : (ultimaFase ? "MENU" : "PRÓXIMA FASE");
+
+          drawButton(W / 2 - 215, H / 2 + 55, 200, 58, primaryLabel);
+          drawButton(W / 2 + 15, H / 2 + 55, 200, 58, "PERSONAGENS");
+        }
+      }
+
+      function drawTouchControls() {
+        const alpha = 0.35;
+
+        ctx.fillStyle = `rgba(0,0,0,${alpha})`;
+        roundRect(ctx, controls.left.x, controls.left.y, controls.left.w, controls.left.h, 20);
+        ctx.fill();
+
+        roundRect(ctx, controls.right.x, controls.right.y, controls.right.w, controls.right.h, 20);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(
+          controls.jump.x + controls.jump.w / 2,
+          controls.jump.y + controls.jump.h / 2,
+          42,
+          0,
+          Math.PI * 2
+        );
+        ctx.fill();
+
+        ctx.fillStyle = COLORS.white;
+
+        ctx.beginPath();
+        ctx.moveTo(controls.left.x + 20, controls.left.y + 35);
+        ctx.lineTo(controls.left.x + 52, controls.left.y + 17);
+        ctx.lineTo(controls.left.x + 52, controls.left.y + 53);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(controls.right.x + 55, controls.right.y + 35);
+        ctx.lineTo(controls.right.x + 23, controls.right.y + 17);
+        ctx.lineTo(controls.right.x + 23, controls.right.y + 53);
+        ctx.closePath();
+        ctx.fill();
+
+        drawText(
+          "PULAR",
+          controls.jump.x + controls.jump.w / 2,
+          controls.jump.y + controls.jump.h / 2,
+          18,
+          COLORS.white,
+          "center"
+        );
+      }
+
+      function drawButton(x, y, w, h, text) {
+        ctx.fillStyle = COLORS.blue;
+        roundRect(ctx, x, y, w, h, 12);
+        ctx.fill();
+
+        ctx.strokeStyle = COLORS.white;
+        ctx.lineWidth = 2;
+        roundRect(ctx, x, y, w, h, 12);
+        ctx.stroke();
+
+        drawText(text, x + w / 2, y + h / 2, 17, COLORS.white, "center");
+      }
+
+      function roundRect(context, x, y, w, h, radius) {
+        const r = Math.min(radius, w / 2, h / 2);
+
+        context.beginPath();
+        context.moveTo(x + r, y);
+        context.arcTo(x + w, y, x + w, y + h, r);
+        context.arcTo(x + w, y + h, x, y + h, r);
+        context.arcTo(x, y + h, x, y, r);
+        context.arcTo(x, y, x + w, y, r);
+        context.closePath();
+      }
+
+      function syncTouchControls() {
+        const show =
+          state === "game" &&
+          !gameOver &&
+          !won &&
+          !deathSplash.active;
+        touchControls.style.display = show ? "block" : "none";
+      }
+
+      function draw() {
+        syncTouchControls();
+
+        if (state === "menu") {
+          drawMenu();
+        } else if (state === "select") {
+          drawSelection();
+        } else {
+          drawGame();
+        }
+      }
+
+      function canvasPoint(event) {
+        const rect = canvas.getBoundingClientRect();
+        return {
+          x: (event.clientX - rect.left) * (W / rect.width),
+          y: (event.clientY - rect.top) * (H / rect.height)
+        };
+      }
+
+      function menuRects() {
+        return [
+          { x: W / 2 - 300, y: 315, w: 600, h: 58 },
+          { x: W / 2 - 250, y: 375, w: 500, h: 58 },
+          { x: W / 2 - 220, y: 435, w: 440, h: 58 }
+        ];
+      }
+
+      function selectionCardRects() {
+        const baseCardW = 165;
+        const baseCardH = 300;
+        const baseGap = 18;
+        const scaleCards = Math.min(1, (W - 90) / (baseCardW * 5 + baseGap * 4), (H - 220) / baseCardH);
+        const cardW = Math.max(125, baseCardW * scaleCards);
+        const cardH = Math.max(240, baseCardH * scaleCards);
+        const gap = Math.max(10, baseGap * scaleCards);
+        const total = cardW * 5 + gap * 4;
+        const startX = Math.max(20, (W - total) / 2);
+        const y = Math.max(120, (H - cardH) / 2 - 15);
+
+        return characters.map((_, i) => ({
+          x: startX + i * (cardW + gap),
+          y,
+          w: cardW,
+          h: cardH
+        }));
+      }
+
+      function handlePointerDown(id, x, y) {
+        pointers.set(id, { x, y });
+
+        if (state === "menu") {
+          const rects = menuRects();
+
+          if (pointInRect(x, y, rects[0])) {
+            menuIndex = 0;
+            state = "select";
+            return;
+          }
+
+          if (pointInRect(x, y, rects[1])) {
+            menuIndex = 1;
+            startGame("normal");
+            return;
+          }
+
+          if (pointInRect(x, y, rects[2])) {
+            menuIndex = 2;
+            startGame("hardcore");
+            return;
+          }
+        }
+
+        if (state === "select") {
+          const cards = selectionCardRects();
+
+          for (let i = 0; i < cards.length; i++) {
+            if (pointInRect(x, y, cards[i])) {
+              selectedCharacter = i;
+              if (characters[i].loaded) {
+                state = "menu";
+              }
+              return;
+            }
+          }
+        }
+
+        if (state === "game") {
+          if (deathSplash.active) {
+            return;
+          }
+
+          if (gameOver || won) {
+            const retry = { x: W / 2 - 215, y: H / 2 + 55, w: 200, h: 58 };
+            const chars = { x: W / 2 + 15, y: H / 2 + 55, w: 200, h: 58 };
+
+            if (pointInRect(x, y, retry)) {
+              nextLevelOrFinish();
+              return;
+            }
+
+            if (pointInRect(x, y, chars)) {
+              state = "select";
+              return;
+            }
+          }
+
+          if (pointInRect(x, y, controls.jump)) {
+            pressed.jumpQueued = true;
+          }
+
+          updateTouchDirections();
+        }
+      }
+
+      function updateTouchDirections() {
+        let left = false;
+        let right = false;
+
+        for (const point of pointers.values()) {
+          if (pointInRect(point.x, point.y, controls.left)) left = true;
+          if (pointInRect(point.x, point.y, controls.right)) right = true;
+        }
+
+        pressed.left = left || keyboard.left || buttonHeld.left;
+        pressed.right = right || keyboard.right || buttonHeld.right;
+      }
+
+      function handlePointerMove(id, x, y) {
+        if (!pointers.has(id)) return;
+        pointers.set(id, { x, y });
+        updateTouchDirections();
+      }
+
+      function handlePointerUp(id) {
+        pointers.delete(id);
+        updateTouchDirections();
+      }
+
+      const keyboard = {
+        left: false,
+        right: false
+      };
+
+      window.addEventListener("keydown", (event) => {
+        const key = event.key.toLowerCase();
+
+        if (["arrowleft", "arrowright", "arrowup", "arrowdown", " ", "enter"].includes(key)) {
+          event.preventDefault();
+        }
+
+        if (state === "menu") {
+          if (key === "arrowup" || key === "w") {
+            menuIndex = (menuIndex - 1 + 3) % 3;
+          } else if (key === "arrowdown" || key === "s") {
+            menuIndex = (menuIndex + 1) % 3;
+          } else if (key === "enter" || key === " ") {
+            if (menuIndex === 0) {
+              state = "select";
+            } else if (menuIndex === 1) {
+              startGame("normal");
+            } else {
+              startGame("hardcore");
+            }
+          }
+          return;
+        }
+
+        if (state === "select") {
+          if (key === "escape") {
+            state = "menu";
+          } else if (key === "arrowleft" || key === "a") {
+            selectedCharacter = (selectedCharacter - 1 + characters.length) % characters.length;
+          } else if (key === "arrowright" || key === "d") {
+            selectedCharacter = (selectedCharacter + 1) % characters.length;
+          } else if (key === "enter" || key === " ") {
+            if (characters[selectedCharacter].loaded) {
+              state = "menu";
+            }
+          }
+          return;
+        }
+
+        if (state === "game") {
+          if (key === "a" || key === "arrowleft") {
+            keyboard.left = true;
+            pressed.left = true;
+          }
+
+          if (key === "d" || key === "arrowright") {
+            keyboard.right = true;
+            pressed.right = true;
+          }
+
+          if (key === "w" || key === "arrowup" || key === " ") {
+            pressed.jumpQueued = true;
+          }
+
+          if (key === "r" && !deathSplash.active) {
+            if (gameOver || won) {
+              nextLevelOrFinish();
+            } else {
+              resetGame();
+            }
+          }
+
+          if (key === "c") {
+            state = "select";
+          }
+
+          if (key === "escape") {
+            state = "menu";
+          }
+        }
+      });
+
+      window.addEventListener("keyup", (event) => {
+        const key = event.key.toLowerCase();
+
+        if (key === "a" || key === "arrowleft") {
+          keyboard.left = false;
+        }
+
+        if (key === "d" || key === "arrowright") {
+          keyboard.right = false;
+        }
+
+        updateTouchDirections();
+      });
+
+      canvas.addEventListener("pointerdown", (event) => {
+        canvas.setPointerCapture?.(event.pointerId);
+        const p = canvasPoint(event);
+        handlePointerDown(event.pointerId, p.x, p.y);
+      });
+
+      canvas.addEventListener("pointermove", (event) => {
+        const p = canvasPoint(event);
+        handlePointerMove(event.pointerId, p.x, p.y);
+      });
+
+      canvas.addEventListener("pointerup", (event) => {
+        handlePointerUp(event.pointerId);
+      });
+
+      canvas.addEventListener("pointercancel", (event) => {
+        handlePointerUp(event.pointerId);
+      });
+
+      canvas.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+      });
+
+      function bindHoldButton(button, direction) {
+        const down = (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          buttonHeld[direction] = true;
+          updateTouchDirections();
+
+          try {
+            button.setPointerCapture(event.pointerId);
+          } catch (_) {}
+        };
+
+        const up = (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          buttonHeld[direction] = false;
+          updateTouchDirections();
+        };
+
+        button.addEventListener("pointerdown", down);
+        button.addEventListener("pointerup", up);
+        button.addEventListener("pointercancel", up);
+        button.addEventListener("lostpointercapture", up);
+      }
+
+      bindHoldButton(moveLeftButton, "left");
+      bindHoldButton(moveRightButton, "right");
+
+      jumpButton.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        pressed.jumpQueued = true;
+
+        try {
+          jumpButton.setPointerCapture(event.pointerId);
+        } catch (_) {}
+      });
+
+      let last = performance.now();
+      let accumulator = 0;
+      const step = 1000 / FPS;
+
+      function loop(now) {
+        const delta = Math.min(50, now - last);
+        last = now;
+        accumulator += delta;
+
+        while (accumulator >= step) {
+          if (state === "game") {
+            updateGame();
+          }
+
+          accumulator -= step;
+        }
+
+        draw();
+        requestAnimationFrame(loop);
+      }
+
+      requestAnimationFrame(loop);
+    })();
+  </script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("./service-worker.js").catch(() => {});
+      });
+    }
+  </script>
+  <script>
+    async function ativarModoJogo() {
+      try {
+        if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+          await document.documentElement.requestFullscreen();
+        }
+      } catch (e) {}
+      try {
+        if (screen.orientation && screen.orientation.lock) {
+          await screen.orientation.lock("landscape");
+        }
+      } catch (e) {}
+    }
+    document.addEventListener("pointerdown", ativarModoJogo, { once: true });
+  </script>
+</body>
+</html>
